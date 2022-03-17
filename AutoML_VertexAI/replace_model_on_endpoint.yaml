@@ -1,0 +1,49 @@
+name: Replace model on endpoint
+inputs:
+- {name: project, type: String}
+- {name: display_name, type: String}
+- {name: model_name, type: String}
+- {name: traffic_percentage, type: Integer}
+implementation:
+  container:
+    image: gcr.io/ml-pipeline/google-cloud-pipeline-components:latest
+    command:
+    - sh
+    - -c
+    - |2
+
+      if ! [ -x "$(command -v pip)" ]; then
+          python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+      fi
+
+      PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'google-cloud-aiplatform' 'kfp==1.8.9' && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp -d)
+      printf "%s" "$0" > "$program_path/ephemeral_component.py"
+      python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+    - "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing\
+      \ import *\n\ndef replace_model_on_endpoint(project: str, display_name: str,\
+      \ model_name: str, traffic_percentage: int ):\n\n    import logging\n    from\
+      \ google.cloud import aiplatform as aip\n    from collections import namedtuple\n\
+      \n    models= aip.Model.list(filter=f\"display_name={model_name}\", project\
+      \ = project)\n    model = models[0] \n    print(\"model to deploy: \", models[0]._gca_resource.name)\n\
+      \n    print(f\"Looking for endpoints\")\n    endpoints = aip.Endpoint.list(filter=f\"\
+      display_name={display_name}\", project = project ) \n\n    if endpoints == []:\n\
+      \        print(f\"No reusable endpoint found, creating new endpoint: {display_name}\"\
+      )\n        endpoint = aip.Endpoint.create(f\"{display_name}\", project = project)\n\
+      \        print(f\"endpoint_uri = {endpoint._gca_resource.name}\")\n        model.deploy(endpoint=\
+      \ endpoint, \n                 machine_type = \"n1-standard-4\" , \n       \
+      \          min_replica_count=1,\n                 max_replica_count=1)\n   \
+      \ else:\n        endpoint = endpoints[0]\n        print(f\"Reusable endpoint\
+      \ found. Endpoint_id: {endpoint}\")\n        print(f\"endpoint_uri = {endpoint._gca_resource.name}\"\
+      )\n        model.deploy(endpoint= endpoint,\n                     traffic_percentage\
+      \ = traffic_percentage,\n                     machine_type = \"n1-standard-4\"\
+      \ , \n                     min_replica_count=1,\n                     max_replica_count=1)\
+      \ \n\n\n    print(f\"model deployed\")\n    return \n\n"
+    args:
+    - --executor_input
+    - {executorInput: null}
+    - --function_to_execute
+    - replace_model_on_endpoint
